@@ -1,79 +1,60 @@
 import { Injectable } from '@nestjs/common';
 import { v4 as uuid } from 'uuid';
-import { CreateUserDto } from './dto/createUser.dto';
-import { UpdatePasswordDto } from './dto/updatePassword.dto';
+import { CreateUserDTO } from './dto/user.dto';
+import { UpdatePasswordDTO } from './dto/password.dto';
 import { User } from './user.interface';
+import { DBService } from 'src/DB/DB.service';
 
 @Injectable()
 export class UserService {
-  private readonly users: User[] = [
-    {
-      id: '1b9d6bcd-bbfd-4b2d-9b5d-ab8dfbbd4bed',
-      login: 'testUser',
-      password: 'password',
-      version: 1,
-      createdAt: 1674784901,
-      updatedAt: 1674784901,
-    },
-  ];
+  constructor(private dbService: DBService) {}
 
-  findAll(): User[] {
-    return this.users;
+  async findAll(): Promise<User[]> {
+    return this.dbService.getAllUsers();
   }
 
-  findOne(id: string): User | undefined {
-    return this.users.find((user) => user.id === id);
+  async findOne(id: string): Promise<User> {
+    return this.dbService.getUser(id);
   }
 
-  create(userDTO: CreateUserDto): User {
+  async create(userDTO: CreateUserDTO): Promise<User> {
+    const newUser = this.buildUser(userDTO);
+    await this.dbService.createUser(newUser);
+    return newUser;
+  }
+
+  async update(id: string, passwordDTO: UpdatePasswordDTO): Promise<User> {
+    const user = await this.dbService.getUser(id);
+    const updatedUser = this.updateUserPassword(user, passwordDTO.newPassword);
+    await this.dbService.updateUser(id, updatedUser);
+    return updatedUser;
+  }
+
+  async delete(id: string): Promise<void> {
+    await this.dbService.deleteUser(id);
+  }
+
+  private buildUser(userDTO: CreateUserDTO): User {
     const id = uuid();
     const version = 1;
-    const createdAt = Date.now();
+    const timestamp = Date.now();
 
-    const newUser: User = {
+    return {
       id,
       login: userDTO.login,
       password: userDTO.password,
       version,
-      createdAt,
-      updatedAt: createdAt,
+      createdAt: timestamp,
+      updatedAt: timestamp,
     };
-
-    this.users.push(newUser);
-
-    return newUser;
   }
 
-  update(id: string, passwordDTO: UpdatePasswordDto): User {
-    const userIndex = this.findUserIndex(id);
-
-    if (userIndex === -1) {
-      throw new Error('User not found');
-    }
-
-    const user = this.users[userIndex];
-
-    const updatedUser: User = {
+  private updateUserPassword(user: User, newPassword: string): User {
+    return {
       ...user,
-      password: passwordDTO.newPassword,
+      password: newPassword,
       version: user.version + 1,
       updatedAt: Date.now(),
     };
-
-    this.users[userIndex] = updatedUser;
-
-    return updatedUser;
-  }
-
-  delete(id: string): void {
-    const userIndex = this.findUserIndex(id);
-
-    if (userIndex !== -1) {
-      this.users.splice(userIndex, 1);
-    }
-  }
-
-  private findUserIndex(id: string): number {
-    return this.users.findIndex((user) => user.id === id);
   }
 }

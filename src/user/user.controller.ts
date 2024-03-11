@@ -1,24 +1,25 @@
 import {
-  Get,
-  Put,
-  Controller,
   HttpException,
-  HttpStatus,
   Param,
-  Body,
+  Put,
+  Get,
+  HttpStatus,
+  ValidationPipe,
   Post,
-  HttpCode,
+  Body,
   Delete,
+  Controller,
+  ParseUUIDPipe,
+  HttpCode,
 } from '@nestjs/common';
-import { validate as validateUuid } from 'uuid';
-import { UpdatePasswordDto } from './dto/updatePassword.dto';
-import { CreateUserDto } from './dto/createUser.dto';
-import { UserService } from './user.service';
+import { UpdatePasswordDTO } from './dto/password.dto';
 import { User } from './user.interface';
+import { CreateUserDTO } from './dto/user.dto';
+import { UserService } from './user.service';
 
 @Controller('user')
 export class UserController {
-  constructor(private readonly userService: UserService) {}
+  constructor(private userService: UserService) {}
 
   @Get()
   async findAll(): Promise<User[]> {
@@ -26,110 +27,71 @@ export class UserController {
   }
 
   @Get(':id')
-  async findOne(@Param('id') id: string): Promise<Omit<User, 'password'>> {
-    this.validateUuid(id);
-
-    const user = await this.findUserById(id);
-    this.throwNotFoundIfUserNotFound(user);
-
-    const { password, ...userResponse } = user;
-    return userResponse;
+  async findOne(
+    @Param('id', new ParseUUIDPipe()) id: string,
+  ): Promise<Omit<User, 'password'>> {
+    const user = await this.getUserById(id);
+    return this.mapUserToResponse(user);
   }
 
   @Post()
   async create(
-    @Body() createUserDTO: CreateUserDto,
+    @Body(ValidationPipe) dto: CreateUserDTO,
   ): Promise<Omit<User, 'password'>> {
-    this.validateUserData(createUserDTO);
-
-    const newUser = await this.userService.create(createUserDTO);
-    const { password, ...userResponse } = newUser;
-
-    return userResponse;
+    const newUser = await this.userService.create(dto);
+    return this.mapUserToResponse(newUser);
   }
 
   @Put(':id')
   async update(
-    @Param('id') id: string,
-    @Body() updatePasswordDTO: UpdatePasswordDto,
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body(ValidationPipe) updatePasswordDTO: UpdatePasswordDTO,
   ): Promise<Omit<User, 'password'>> {
-    this.validateUuid(id);
-    this.validateUpdatePasswordData(updatePasswordDTO);
-
-    const user = await this.findUserById(id);
-    this.throwNotFoundIfUserNotFound(user);
-    this.throwForbiddenIfPasswordsDoNotMatch(
-      user.password,
-      updatePasswordDTO.oldPassword,
-    );
+    const user = await this.getUserById(id);
+    this.validateUserPassword(user, updatePasswordDTO.oldPassword);
 
     const updatedUser = await this.userService.update(
       user.id,
       updatePasswordDTO,
     );
-    const { password, ...userResponse } = updatedUser;
 
-    return userResponse;
+    return this.mapUserToResponse(updatedUser);
   }
 
   @Delete(':id')
   @HttpCode(204)
-  async delete(@Param('id') id: string): Promise<void> {
-    this.validateUuid(id);
-
-    const user = await this.findUserById(id);
-    this.throwNotFoundIfUserNotFound(user);
-
+  async delete(@Param('id', new ParseUUIDPipe()) id: string) {
+    const user = await this.getUserById(id);
     this.userService.delete(user.id);
-    return;
   }
 
-  private validateUuid(id: string): void {
-    if (!validateUuid(id)) {
-      throw new HttpException(
-        'Specified id is invalid',
-        HttpStatus.BAD_REQUEST,
-      );
-    }
-  }
-
-  private async findUserById(id: string): Promise<User> {
+  private async getUserById(id: string): Promise<User> {
     const user = await this.userService.findOne(id);
-    return user;
-  }
-
-  private throwNotFoundIfUserNotFound(user: User): void {
     if (!user) {
       throw new HttpException(
         'User with specified id not found',
         HttpStatus.NOT_FOUND,
       );
     }
+    return user;
   }
 
-  private validateUserData(userData: CreateUserDto): void {
-    if (!userData.login || !userData.password) {
-      throw new HttpException('Invalid data format', HttpStatus.BAD_REQUEST);
-    }
-  }
-
-  private validateUpdatePasswordData(
-    updatePasswordDTO: UpdatePasswordDto,
-  ): void {
-    if (!updatePasswordDTO.oldPassword || !updatePasswordDTO.newPassword) {
-      throw new HttpException('Invalid data format', HttpStatus.BAD_REQUEST);
-    }
-  }
-
-  private throwForbiddenIfPasswordsDoNotMatch(
-    actualPassword: string,
-    providedPassword: string,
-  ): void {
-    if (actualPassword !== providedPassword) {
+  private validateUserPassword(user: User, oldPassword: string): void {
+    if (user.password !== oldPassword) {
       throw new HttpException(
         'User or password is invalid',
         HttpStatus.FORBIDDEN,
       );
     }
+  }
+
+  private mapUserToResponse(user: User): Omit<User, 'password'> {
+    return {
+      id: user.id,
+      login: user.login,
+      version: user.version,
+      createdAt: user.createdAt,
+      updatedAt: user.updatedAt,
+    };
   }
 }
